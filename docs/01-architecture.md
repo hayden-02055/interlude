@@ -1,4 +1,4 @@
-# Registry-First On-Chain Commerce + MCP 래핑 — 아키텍처 개요
+# Interlude: Registry-First On-Chain Commerce + MCP 래핑 — 아키텍처 개요
 
 > 다음 → [02-data-mapping.md](02-data-mapping.md)
 >
@@ -8,7 +8,7 @@
 
 ## TL;DR
 
-1. 이 프로젝트의 핵심은 결제가 아니라 `permissionless listing + verifiable discovery`다.
+1. Interlude 프로젝트의 핵심은 결제가 아니라 `permissionless listing + verifiable discovery`다.
 2. 결제는 registry/discovery와 분리된 모듈로 취급한다.
 3. 문서는 `개요(01~03) → 인터페이스/구현(04~07)` 순서로 읽는 것을 전제한다.
 
@@ -38,7 +38,7 @@ flowchart TB
   M --> W["Arweave (이미지/상세설명)"]
   S --> P["결제 모듈 (선택)"]
   S --> E["EncryptedBuyerInfo PDA (임시 암호화 PII)"]
-  M -.-> I["PII 인덱서 (선택: Merchant 편의)"]
+  M -.-> I["PII Curator (선택: Merchant 편의)"]
 ```
 
 ## 한 번에 보는 사용자 여정
@@ -61,6 +61,7 @@ flowchart TB
 | [05-solana-program.md](05-solana-program.md) | Solana Program 설계 (Account, Instructions, 상태 전이) |
 | [06-payment-handler.md](06-payment-handler.md) | `sol.usdc` Payment Handler 정의 |
 | [07-implementation-plan.md](07-implementation-plan.md) | 구현 로드맵, KPI 게이트, 배포 계획 |
+| [08-pocket.md](08-pocket.md) | Pocket (구매자 MCP 서비스) 설계 |
 
 ---
 

@@ -34,6 +34,7 @@ ucp-solana-mcp/
 │   ├── tools/                  ← MCP Tools (UCP 오퍼레이션)
 │   │   ├── merchant.ts         ← discover_merchant, register_merchant
 │   │   ├── product.ts          ← search_products, get_product
+│   │   ├── attestation.ts     ← attest_merchant, revoke_attestation (Curator용)
 │   │   ├── checkout.ts         ← create/get/update/complete/cancel_checkout
 │   │   ├── cart.ts             ← create/get/update/cancel_cart
 │   │   └── order.ts            ← get_order, list_orders
@@ -82,7 +83,7 @@ flowchart TB
   MCP["UCP-Solana MCP Server<br/>(MCP = tool set)"]
 
   subgraph DISC["Discovery Tools"]
-    D1["discover_merchant<br/>MerchantProfile PDA -> UCP profile"]
+    D1["discover_merchant<br/>MerchantProfile PDA -> UCP profile<br/>+ badges (Curator Badge)"]
     D2["search_products<br/>getProgramAccounts + Arweave -> item[]"]
     D3["get_product"]
   end
@@ -114,11 +115,17 @@ flowchart TB
     M4["release_escrow / process_refund"]
   end
 
+  subgraph ATT["Curator Tools"]
+    A1["attest_merchant<br/>Curator가 Merchant에 Badge 부여"]
+    A2["revoke_attestation<br/>Curator가 Badge 철회"]
+  end
+
   MCP --> DISC
   MCP --> CHECK
   MCP --> CART
   MCP --> ORDER
   MCP --> MERCH
+  MCP --> ATT
 ```
 
 ## 2.3 핵심 도구 상세: create_checkout (Phase 4+ 모듈)
@@ -411,7 +418,7 @@ MCP 요청 → Solana 트랜잭션 → UCP 응답 변환의 전체 흐름:
     g. 배송 주소 복원:
        → Agent Off-chain DB에 원본이 있으면 사용 (Agent가 Buyer 측인 경우)
        → 없으면 EncryptedBuyerInfo PDA 조회 → 복호화 (Merchant 측인 경우)
-       → PDA가 닫혀있으면 인덱서에서 캐시 조회 (fallback)
+       → PDA가 닫혀있으면 Curator에서 캐시 조회 (fallback)
     h. Order line_items quantity 변환:
        → CheckoutLineItem.quantity → { total: quantity }
        → FulfillmentEvent[] 집계 → { fulfilled: Σ(delivered 수량) }

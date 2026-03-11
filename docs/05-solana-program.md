@@ -106,6 +106,19 @@ pub struct MerchantProfile {
     pub created_at: i64,
     pub updated_at: i64,
     pub product_count: u32,
+
+    // === 거래 실적 (Program이 자동 갱신) ===
+    pub total_orders: u32,            // 완료된 주문 수
+    pub total_volume: u64,            // 총 거래액 (minor units)
+    pub unique_buyers: u32,           // 고유 구매자 수
+    pub last_order_at: i64,           // 마지막 주문 시점
+    pub dispute_count: u16,           // 분쟁 발생 횟수
+    pub refund_count: u16,            // 환불 횟수
+
+    // === Curator Badge ===
+    // Curator가 직접 TX에 서명하여 Badge 부여 — 웹 인증서(CA → SSL)와 동일한 신뢰 모델
+    // Merchant가 위조 불가 (Curator Signer 검증)
+    pub badges: Vec<CuratorBadge>,  // 최대 5개
 }
 
 #[derive(AnchorSerialize, AnchorDeserialize, Clone)]
@@ -118,6 +131,24 @@ pub struct ShippingRate {
     pub max_days: u8,             // 최대 배송일
 }
 // MerchantProfile 예상 크기: ~1100 bytes (ShippingRate 5개 포함)
+
+#[derive(AnchorSerialize, AnchorDeserialize, Clone)]
+pub struct CuratorBadge {
+    pub curator: Pubkey,          // Curator 공개키 (= Certificate Authority)
+    pub attestation_type: u8,    // 인증 유형 (아래 참조)
+    pub level: u8,               // 인증 등급 (1=기본, 2=표준, 3=프리미엄)
+    pub attested_at: i64,        // 발급 시점
+    pub expires_at: i64,         // 만료 시점 (갱신 필요)
+    pub metadata_hash: [u8; 32], // 인증 근거 문서 해시 (Arweave)
+}
+// attestation_type:
+//   0x01: domain_verified     — 도메인 소유 확인 (DNS TXT 레코드 등)
+//   0x02: identity_verified   — 신원 확인 (KYC)
+//   0x03: commerce_verified   — 실제 거래 이력 확인 (외부 플랫폼)
+//   0x04: community_endorsed  — 커뮤니티/DAO 보증
+//   0x05: financial_verified  — 재무 건전성 확인
+// CuratorBadge 크기: ~82 bytes, 최대 5개 = ~410 bytes
+// MerchantProfile 예상 크기: ~1,100 + 410 + 50(거래 실적) ≈ ~1,560 bytes
 ```
 
 ### ProductListing
@@ -514,6 +545,11 @@ flowchart TB
     PII3["auto_close_buyer_info<br/>keeper 호출, TTL 초과 시 강제 닫기"]
   end
 
+  subgraph ATT["Curator Badge Instructions"]
+    ATT1["attest_merchant<br/>Curator가 서명하여 Badge 부여"]
+    ATT2["revoke_attestation<br/>Curator가 Badge 철회"]
+  end
+
   subgraph QRY["Query (read-only via RPC)"]
     Q1["get account data"]
     Q2["getProgramAccounts"]
@@ -524,6 +560,7 @@ flowchart TB
   CORE --> CHK
   CORE --> ORD
   CORE --> PII
+  CORE --> ATT
   CORE --> QRY
 ```
 
@@ -654,6 +691,25 @@ pub struct BuyerInfoClosed {
     pub auto_closed: bool,               // TTL 초과 자동 닫기 여부
     pub timestamp: i64,
 }
+
+// Curator Badge 이벤트
+#[event]
+pub struct MerchantAttested {
+    pub merchant: Pubkey,
+    pub curator: Pubkey,
+    pub attestation_type: u8,
+    pub level: u8,
+    pub expires_at: i64,
+    pub timestamp: i64,
+}
+
+#[event]
+pub struct AttestationRevoked {
+    pub merchant: Pubkey,
+    pub curator: Pubkey,
+    pub attestation_type: u8,
+    pub timestamp: i64,
+}
 ```
 
 ## 1.6 에러 코드 (UCP messages 매핑)
@@ -733,6 +789,16 @@ pub enum CommerceError {
 
     #[msg("Buyer info TTL not reached for auto-close")]
     BuyerInfoTtlNotReached,
+
+    // === Curator Badge ===
+    #[msg("Maximum attestations (5) exceeded")]
+    MaxAttestationsExceeded,
+
+    #[msg("Attestation not found for this curator and type")]
+    AttestationNotFound,
+
+    #[msg("Attestation has expired")]
+    AttestationExpired,
 }
 ```
 

@@ -1,7 +1,44 @@
-# Solana 블록체인 기반 탈중앙화 확장 설계안
+# Interlude — Solana 블록체인 기반 탈중앙화 커머스 에코시스템
 
 > 다음 → [01-architecture.md](01-architecture.md)
->
+
+## Interlude 에코시스템 구성
+
+```mermaid
+flowchart TB
+  subgraph INTERLUDE["Interlude Ecosystem"]
+    subgraph BUYER["구매자 측"]
+      A["AI Agent"]
+      PKT["Pocket<br/>(구매자 MCP 서비스)<br/>PII·배송지·결제수단·선호도"]
+    end
+
+    subgraph COMMERCE["커머스 계층"]
+      MCP["Market MCP Server<br/>(Agent-local)"]
+      SOL["Market<br/>(Solana Program)<br/>등록·조회·거래"]
+    end
+
+    subgraph TRUST["신뢰 계층"]
+      CUR["Curator<br/>(검증자)"]
+      BDG["Badge<br/>(인증 증표, on-chain)"]
+    end
+
+    A --> PKT
+    A --> MCP
+    MCP --> SOL
+    CUR -->|"Badge 부여"| SOL
+    CUR --- BDG
+  end
+```
+
+| 구성 요소 | 역할 | 상세 |
+|-----------|------|------|
+| **Pocket** | 구매자 정보 보관 + 자동 제공 | Agent-local MCP 서비스. [08-pocket.md](08-pocket.md) |
+| **Market** | 온체인 커머스 레지스트리 | Solana Program + MCP Server. [05-solana-program.md](05-solana-program.md) |
+| **Curator** | 판매자 검증자 (CA 역할) | 웹 인증서 모델. Merchant에 Badge 부여 |
+| **Badge** | Curator가 부여하는 인증 증표 | MerchantProfile에 on-chain 임베딩 |
+
+---
+
 ## 독해 가이드
 
 - 이 문서의 목표:
@@ -191,13 +228,17 @@ pub struct OrderEvent {
 
 ```mermaid
 flowchart TB
-  BR["UCP-Solana MCP Server<br/>(Agent-local, UCP ↔ Solana 변환)"]
+  PKT["Pocket<br/>(구매자 MCP 서비스)"]
+  BR["Market MCP Server<br/>(Agent-local, UCP ↔ Solana 변환)"]
   U["UCP MCP 바인딩<br/>AI 에이전트 통신"]
-  S["Solana Programs<br/>Commerce, Escrow, Profile,<br/>EncryptedBuyerInfo"]
+  S["Market (Solana Program)<br/>Commerce, Escrow, Profile,<br/>EncryptedBuyerInfo"]
+  C["Curator<br/>Badge 부여/철회"]
   O["Off-chain Storage<br/>Arweave: 상품 이미지/상세 설명<br/>Agent-local DB: PII 원본/세션"]
-  I["PII 인덱서 (선택)<br/>Merchant 편의 제공"]
+  I["PII Curator (선택)<br/>Merchant 편의 제공"]
+  PKT -.->|"checkout 시 PII 제공"| BR
   BR --> U
   BR --> S
+  C -->|"Badge TX"| S
   BR --> O
   S -.-> I
 ```
@@ -213,6 +254,8 @@ flowchart TB
 5. 토큰/체인 정보는 `currency_mint`와 `payment_handlers`에서 표현한다.
 6. **MCP Server는 AI Agent 측에서 실행**한다 (중앙 서버 아님).
 7. **Buyer PII는 주문별 ephemeral key로 암호화하여 on-chain에 임시 저장**, Merchant 수신 확인 후 PDA를 닫아 제거한다.
+8. **Curator Badge를 MerchantProfile에 임베딩**한다. Curator가 직접 TX에 서명하여 Merchant를 인증하고, AI Agent는 신뢰하는 Curator 목록을 기준으로 판매자 신뢰를 판단한다. 웹 인증서(CA → SSL)와 동일한 신뢰 모델.
+9. **에코시스템 명칭은 Interlude**다. 구성 요소: Pocket(구매자 MCP), Market(온체인 커머스), Curator(검증자), Badge(인증 증표).
 
 ---
 
@@ -226,7 +269,7 @@ flowchart TD
 
 ```mermaid
 flowchart TB
-  P1["Phase 1 (2-6주)<br/>Permissionless Registry<br/>Merchant/Product on-chain + 온체인 기반 discovery + 다중 인덱서"]
+  P1["Phase 1 (2-6주)<br/>Permissionless Registry<br/>Merchant/Product on-chain + 온체인 기반 discovery + 다중 Curator"]
   P2["Phase 2 (4-10주)<br/>Verifiable Discovery + Reputation<br/>스팸/시빌 방어 + portable score + 정책 계층 분리"]
   P3["Phase 3 (6-14주)<br/>Settlement Modules<br/>sol.usdc/sol.native + Escrow/분쟁/환불 점진 도입"]
   P1 --> P2 --> P3
@@ -241,7 +284,9 @@ flowchart TB
 ### 1. AP2가 필요 없는 자연스러운 신뢰
 블록체인 자체가 "누구도 변조 못함"을 보장.
 암호학적 서명 = 지갑 서명으로 대체.
+Curator Badge(attestation)이 MerchantProfile에 임베딩되어 AI Agent가 즉시 판매자 신뢰를 검증.
 > 등록/발견/주문 이력이 온체인 검증 가능하므로 AP2 의존도를 낮춘다.
+> Curator Badge는 웹 인증서(CA)와 동일한 모델로, Curator가 직접 서명하여 위조 불가.
 > → AP2 상세는 [concepts/03-ap2-security.md](concepts/03-ap2-security.md) 참조.
 
 ### 2. AI 에이전트의 자율 거래

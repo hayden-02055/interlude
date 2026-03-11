@@ -50,13 +50,13 @@ concepts 문서를 읽을 때의 `해석 룰`을 먼저 고정한다.
 1. Checkout full replacement 오케스트레이션 고도화
 2. Escrow/환불/분쟁 자동화
 3. 결제 모듈 확장(`sol.usdc` 외 추가 핸들러)
-4. PII 인덱서 고도화 (복수 인덱서 경쟁, 위임 키 프로토콜 표준화)
+4. PII Curator 고도화 (복수 Curator 경쟁, 위임 키 프로토콜 표준화)
 
 ---
 
 ## 범위 경계 원칙
 
-1. 프로토콜은 중립 유지, 정책은 인덱서/UI 계층에서 적용
+1. 프로토콜은 중립 유지, 정책은 Curator/UI 계층에서 적용
 2. PII 원본은 Agent-local DB, on-chain은 해시(영구) + 암호화된 PII(임시, PDA closure로 제거)
 3. 모듈 간 결합 최소화: registry/discovery와 payment는 독립적으로 진화
 4. PII 암호문의 on-chain 노출 기간을 최소화 (ephemeral key + PDA closure)

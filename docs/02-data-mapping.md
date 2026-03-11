@@ -20,6 +20,7 @@
 3. payment 필드는 선택형 모듈로 취급하며 registry/discovery 계층과 분리한다.
 4. **PII는 주문별 임시 키로 암호화하여 on-chain에 임시 저장하고, Merchant 수신 확인 후 PDA를 닫는다.**
 5. **PII 암호문의 on-chain 노출 기간을 최소화하여 미래 키 유출 위험을 줄인다.**
+6. **Curator Badge(attestation)는 on-chain에 저장하여 AI Agent가 즉시 검증 가능하게 한다.** Curator가 직접 TX에 서명하므로 Merchant 위조 불가.
 
 ---
 
@@ -29,7 +30,7 @@
 flowchart TB
   subgraph OC["On-chain (Solana)"]
     direction TB
-    OC1["신뢰 데이터<br/>가격/재고, 체크아웃 상태/금액<br/>에스크로, 주문/배송 이벤트<br/>환불/조정, 상점 프로필, 판매 통계"]
+    OC1["신뢰 데이터<br/>가격/재고, 체크아웃 상태/금액<br/>에스크로, 주문/배송 이벤트<br/>환불/조정, 상점 프로필, 판매 통계<br/>Curator Badge(attestation)"]
     OC2["PII 해시 (영구)<br/>email_hash, name_hash 등<br/>→ 검증용, 복호화 불가"]
     OC3["암호화된 PII (임시)<br/>EncryptedBuyerInfo PDA<br/>→ Merchant 수신 확인 후 PDA 닫기"]
     OC4["저장 형태: PDA Account<br/>비용: 계정당 ~0.002-0.007 SOL"]
@@ -71,7 +72,7 @@ AI Agent (각자 자기 것)
 공유 인프라 (운영자 없음)
 ├── Solana            ← 퍼블릭 블록체인
 ├── Arweave           ← 퍼블릭 영구 저장
-└── PII 인덱서 (선택) ← 복수 운영 가능, Merchant 편의 제공
+└── PII Curator (선택) ← 복수 운영 가능, Merchant 편의 제공
 ```
 
 ### Merchant에게 PII를 전달하는 방법
@@ -80,7 +81,7 @@ Merchant는 on-chain에 해시만으로는 실제 배송 주소를 알 수 없�
 이를 해결하기 위해 **주문별 임시 키 + PDA 닫기 패턴**을 사용한다.
 
 - `complete_checkout` 시 PII를 주문별 ephemeral key로 암호화하여 `EncryptedBuyerInfo PDA`에 저장
-- Merchant(또는 PII 인덱서)가 복호화하여 수신
+- Merchant(또는 PII Curator)가 복호화하여 수신
 - 수신 확인 후 PDA를 닫아 on-chain에서 암호문 제거
 - 상세 설계는 아래 [암호화된 PII On-chain 저장 (Ephemeral Key + PDA Closure)](#암호화된-pii-on-chain-저장-ephemeral-key--pda-closure) 참조
 
@@ -173,7 +174,7 @@ flowchart TB
 sequenceDiagram
   participant A as Buyer Agent (MCP Server)
   participant S as Solana Program
-  participant I as PII 인덱서 (선택)
+  participant I as PII Curator (선택)
   participant M as Merchant
 
   Note over A,S: complete_checkout 시
@@ -193,7 +194,7 @@ sequenceDiagram
   S-->>M: 10. PDA 삭제, rent 환수
   M->>M: 11. ephemeral privkey 폐기
 
-  Note over I,S: 인덱서 경유 (선택적)
+  Note over I,S: Curator 경유 (선택적)
   I->>S: EncryptedBuyerInfo 이벤트 감지
   I->>I: Merchant 위임 키로 복호화 → 캐시
   M->>I: 편의 API로 PII 조회 (대안 경로)
@@ -206,7 +207,7 @@ flowchart TB
   subgraph R["GDPR 삭제 요청"]
     R1["Agent Off-chain DB에서 buyer 원본 삭제"]
     R2["Merchant에게 삭제 요청 전달"]
-    R3["인덱서에게 캐시 삭제 요청"]
+    R3["Curator에게 캐시 삭제 요청"]
     R4["On-chain 해시는 잔존 (복호화 불가)"]
     R5["EncryptedBuyerInfo PDA는 이미 닫혀있음<br/>(close_buyer_info로 삭제 완료)"]
     R6["ephemeral key 이미 폐기됨"]
@@ -279,7 +280,7 @@ PDA 닫기:
 | Merchant 장기 키 유출 | ephemeral key 이미 폐기 → **안전** | PDA 닫혀있으면 암호문 없음 → **안전** | **이중 방어** |
 | Ledger 히스토리 스캔 | ephemeral key 없이 복호화 불가 → **안전** | 닫힌 PDA는 active state에 없음 | **이중 방어** |
 | PDA 닫기 전 탈취 | Merchant 장기 키 + ephemeral key 동시 필요 → **난이도 높음** | 아직 열려있어 조회 가능 | ephemeral key 보호 |
-| 인덱서 해킹 | 위임 키 범위만 노출 | 인덱서 캐시만 위험 | on-chain과 분리 |
+| Curator 해킹 | 위임 키 범위만 노출 | Curator 캐시만 위험 | on-chain과 분리 |
 
 ### 잔존 위험과 수용 범위
 
@@ -287,28 +288,28 @@ PDA 닫기:
 - **과거 ledger 히스토리**: Validator pruning 대상. Archival node에 남을 수 있지만 ephemeral key 이미 폐기되어 복호화 불가.
 - **Merchant가 PDA를 안 닫는 경우**: 인센티브 설계로 대응 (rent 환수 = 경제적 동기). 필요 시 TTL 강제 (keeper가 일정 기간 후 자동 close).
 
-### PII 인덱서 (선택적 보조 계층)
+### PII Curator (선택적 보조 계층)
 
 Merchant가 직접 on-chain PDA를 읽고 복호화할 수 있지만,
-운영 편의를 위해 **PII 인덱서**를 선택적으로 활용할 수 있다.
+운영 편의를 위해 **PII Curator**를 선택적으로 활용할 수 있다.
 
 ```
-인덱서 역할:
+Curator 역할:
 ├── on-chain EncryptedBuyerInfo 이벤트 감지
 ├── Merchant 위임 키로 복호화 → 운영 DB에 캐시
 ├── Merchant에게 조회 API 제공 (배송지, 고객 목록, 검색)
 ├── GDPR 삭제 요청 시 캐시에서 삭제
 └── Webhook 브릿지 역할 병행 가능
 
-인덱서 장애 시 fallback:
+Curator 장애 시 fallback:
 ├── Merchant가 Solana PDA 직접 조회 → 자기 키로 복호화
 └── on-chain이 원본이므로 데이터 유실 없음
 
 탈중앙화:
-├── 복수 인덱서 운영 가능 (경쟁/선택)
-├── Merchant가 인덱서를 자유롭게 선택/변경
-├── 프로토콜은 인덱서에 중립
-└── 특정 인덱서에 종속되지 않음
+├── 복수 Curator 운영 가능 (경쟁/선택)
+├── Merchant가 Curator를 자유롭게 선택/변경
+├── 프로토콜은 Curator에 중립
+└── 특정 Curator에 종속되지 않음
 ```
 
 ---
@@ -360,7 +361,7 @@ Merchant가 직접 on-chain PDA를 읽고 복호화할 수 있지만,
 | `line_items[].status` | FulfillmentEvent 집계 | `"processing"` / `"partial"` / `"fulfilled"` |
 | `line_items` | CheckoutLineItem[] PDA | 불변 스냅샷 |
 | `totals` | Order.subtotal/tax/... | 개별 필드 → Total[] |
-| `fulfillment.expectations` | FulfillmentExpectation[] PDA + EncryptedBuyerInfo 또는 인덱서 | 배열, destination은 Merchant가 복호화한 PII에서 복원 |
+| `fulfillment.expectations` | FulfillmentExpectation[] PDA + EncryptedBuyerInfo 또는 Curator | 배열, destination은 Merchant가 복호화한 PII에서 복원 |
 | `fulfillment.events` | FulfillmentEvent[] PDA | append-only 이벤트 목록 |
 | `adjustments` | Adjustment[] PDA | append-only 조정 목록 |
 
