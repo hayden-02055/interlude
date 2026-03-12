@@ -1,84 +1,130 @@
-# Solana Decentralized Commerce Registry (UCP + MCP)
+# Interlude
 
-검열 저항적인 온체인 상점/상품 등록 시스템. 핵심은 결제 최적화가 아니라
-`누구나 등록 가능(permissionless listing) + UCP 기반 discovery + 검증 가능한 신뢰`다.
+**Solana 블록체인 기반 탈중앙화 커머스 에코시스템.**
 
-## 독해 가이드
+---
 
-- 추천 독자: 웹 백엔드/플랫폼 3년차 이상
-- 읽는 전략: `왜 이 구조인가`를 먼저 잡고, 구현 상세는 뒤 문서에서 채운다
-- 처음부터 정확히 몰라도 되는 개념: AP2 세부, escrow release 정책, full replacement edge case
-- 먼저 잡아야 하는 축:
-`registry/discovery (핵심)`과 `payment (모듈)`의 분리
+## 1. 출발점: Market
 
-## 기획서 (v8)
+누구나 상점과 상품을 등록하고, AI Agent가 이를 검색·구매할 수 있는 온체인 커머스 레지스트리.
 
-| 문서 | 내용 |
-|------|------|
-| [design-vision.md](docs/design-vision.md) | 방향성/이념: 등록 자유 + discovery 신뢰 + 결제 모듈화 |
-| [01-architecture.md](docs/01-architecture.md) | 전체 구조와 시스템 계층 (코드 없는 개요) |
-| [02-data-mapping.md](docs/02-data-mapping.md) | 데이터 원칙과 on/off-chain 경계 (코드 없는 설계) |
-| [03-risk-register.md](docs/03-risk-register.md) | 리스크/거버넌스/운영 관점의 의사결정 기준 |
-| [04-mcp-server.md](docs/04-mcp-server.md) | discovery/조회 중심 MCP 인터페이스 설계 |
-| [05-solana-program.md](docs/05-solana-program.md) | Solana Program 상세 (PDA/Instruction/상태 전이) |
-| [06-payment-handler.md](docs/06-payment-handler.md) | `sol.usdc` Payment Handler (선택형 결제 모듈) |
-| [07-implementation-plan.md](docs/07-implementation-plan.md) | 단계별 구현 계획, KPI 게이트, 배포 전략 |
+```mermaid
+flowchart LR
+    B([구매자]) --> Agent[AI Agent]
+    Agent --> MCP[Market MCP]
+    MCP -->|"상품 조회 · 구매"| Solana[(Interlude<br/>Market)]
+    Merchant([판매자]) -->|상점·상품 등록| Solana
+```
 
-## 권장 읽기 순서
+- 판매자는 Solana에 상점/상품을 **permissionless**로 등록
+- AI Agent는 Market MCP Server를 통해 상품을 검색하고 체크아웃
+- 중앙 서버 없음 — MCP Server는 Agent-local에서 구동
 
-1. `design-vision.md`
-2. `01-architecture.md`
-3. `02-data-mapping.md`
-4. `03-risk-register.md`
-5. `04-mcp-server.md`
-6. `05-solana-program.md`
-7. `06-payment-handler.md`
-8. `07-implementation-plan.md`
+> 상세: [`docs/market/`](docs/market/)
+
+---
+
+## 2. 문제: 구매자 정보 관리
+
+Market만으로도 거래는 가능하다. 하지만 매번 이름, 배송지, 결제수단을 직접 입력해야 한다.
+개인정보가 여러 곳에 흩어지고, Agent가 자율적으로 구매를 대행하기 어렵다.
+
+### → Pocket 등장
+
+구매자 측에서 실행되는 Agent-local MCP 서비스. 개인정보, 배송지, 결제수단, 선호도를 안전하게 보관하고 체크아웃 시 자동으로 제공한다.
+
+```mermaid
+flowchart LR
+    B([구매자]) --> Agent[AI Agent]
+    Agent --> Pocket[Pocket<br/>구매자 MCP]
+    Agent --> MCP[Market MCP]
+    MCP -->|"상품 조회 · 구매"| Solana[(Interlude<br/>Market)]
+    Pocket -.->|"구매자 정보 · 결제 대행"| MCP
+    Merchant([판매자]) -->|상점·상품 등록| Solana
+```
+
+- PII 원본은 Pocket에만 존재 — Market에는 해시만 전달
+- 로컬 암호화 저장 (AES-256-GCM, OS keychain 연동)
+- Pocket 없이도 Market은 동작 (수동 입력 가능)
+
+> 상세: [`docs/pocket/`](docs/pocket/)
+
+---
+
+## 3. 문제: 신뢰와 검색 품질
+
+Permissionless 등록은 자유를 주지만, 스팸 상점과 사기 판매자도 자유롭게 등록된다.
+온체인 직접 조회는 느리고, 구매자는 어떤 판매자를 믿어야 할지 판단할 기준이 없다.
+
+### → Curator 등장
+
+웹 인증서(CA)와 동일한 신뢰 모델. Curator가 판매자를 심사하고 **Badge**를 부여한다.
+또한 온체인 상품을 인덱싱하여 빠른 검색을 제공한다.
 
 ```mermaid
 flowchart TB
-  A[design-vision] --> B[01-architecture]
-  B --> C[02-data-mapping]
-  C --> D[03-risk-register]
-  D --> E[04-mcp-server]
-  E --> F[05-solana-program]
-  F --> G[06-payment-handler]
-  G --> H[07-implementation-plan]
+    subgraph BUYER["구매자 측"]
+        B([구매자]) --> Agent[AI Agent]
+        Agent --> Pocket[Pocket<br/>구매자 MCP]
+        Agent --> MCP[Market MCP]
+    end
+
+    subgraph CHAIN["온체인"]
+        MCP -->|"상품 조회 · 구매"| Solana[(Interlude<br/>Market)]
+    end
+
+    subgraph TRUST["보증 계층"]
+        Curator[Curator<br/>검증자·인덱서]
+    end
+
+    subgraph SELLER["판매자 측"]
+        Merchant([판매자]) -->|상점·상품 등록| Solana
+    end
+
+    Pocket -.->|"구매자 정보 · 결제 대행"| MCP
+    Curator -->|"Badge 부여"| Solana
+    Curator -->|"상품 인덱싱"| Solana
+    MCP -.->|"Curator 경유 discovery"| Curator
+    MCP -.->|"직접 조회"| Solana
+    Curator -.->|"심사"| Merchant
 ```
+
+- Curator는 독립 주체 — 복수의 Curator가 경쟁하며 신뢰를 형성
+- Badge는 MerchantProfile에 on-chain 임베딩 — AI Agent가 즉시 검증 가능
+- 구매자가 신뢰하는 Curator를 등록하면 해당 Curator 경유로 discovery
+- Curator 없이도 직접 온체인 조회 가능 (fallback)
+
+> 상세: [`docs/curator/`](docs/curator/)
+
+---
 
 ## 핵심 설계 결정
 
-- **MCP Server는 AI Agent 측에서 실행** (중앙 서버 불필요)
-- **데이터 3계층**: Solana(신뢰 상태) + Agent-local DB(PII/세션) + Arweave(미디어)
-- **Buyer PII 보안**: 주문별 ephemeral key로 암호화 → on-chain 임시 저장 → Merchant 수신 후 PDA 닫기
-- **결제 모듈 분리**: registry/discovery와 payment는 독립적으로 진화
+- **Registry-first** — 핵심은 결제가 아니라 permissionless listing + verifiable discovery
+- **결제는 독립 모듈** — 레지스트리와 결합하지 않고 점진 도입
+- **Agent-local** — 중앙 서버 없이, 구매자 Agent 내에서 직접 구동
+- **PII 이중 방어** — ephemeral key + PDA closure로 개인정보 최소 노출
+- **Curator Badge = CA 모델** — 웹 인증서처럼, Curator가 Merchant 신뢰를 보증
+- **데이터 3계층** — Solana(신뢰 상태) + Agent-local DB(PII/세션) + Arweave(미디어)
 
-## 개념 의존 관계
+---
 
-```mermaid
-flowchart TB
-  K1["핵심 목표<br/>permissionless listing + verifiable discovery"] --> K2["시스템 경계<br/>on-chain vs off-chain"]
-  K2 --> K2B["PII 보안<br/>ephemeral key + PDA closure"]
-  K2B --> K3["인터페이스<br/>MCP tools/meta/idempotency"]
-  K3 --> K4["상태 모델<br/>PDA/instruction/state transition"]
-  K4 --> K5["결제 모듈<br/>sol.usdc handler/escrow"]
-  K5 --> K6["운영 계획<br/>phase/kpi/risk"]
+## 문서 구조
+
+```
+docs/
+├── vision.md              — 비전과 핵심 결정
+├── market/                — Market (온체인 커머스)
+├── pocket/                — Pocket (구매자 MCP 서비스)
+├── curator/               — Curator + Badge (보증 계층)
+├── operations/            — 로드맵 + 리스크
+└── reference/             — UCP 매핑, 에러 코드, 프로토콜 레퍼런스
 ```
 
-## UCP 프로토콜 레퍼런스
+전체 비전은 [`docs/vision.md`](docs/vision.md)을 참고하세요.
 
-UCP(Universal Commerce Protocol) 개념 문서는 `docs/concepts/` 폴더에 정리되어 있다.
+---
 
-| 문서 | 설명 |
-|------|------|
-| [concepts/00-our-scope.md](docs/concepts/00-our-scope.md) | 우리 프로젝트의 UCP 적용 범위 가이드 (Registry-first) |
-| [concepts/01-overview.md](docs/concepts/01-overview.md) | UCP 프로젝트 전체 개요 및 아키텍처 |
-| [concepts/02-payment-flow.md](docs/concepts/02-payment-flow.md) | 결제 흐름 (Cart → Checkout → Payment → Order) |
-| [concepts/03-ap2-security.md](docs/concepts/03-ap2-security.md) | AP2 보안 결제 위임 (암호학적 Mandate 체계) |
-| [concepts/04-rest-vs-mcp.md](docs/concepts/04-rest-vs-mcp.md) | REST vs MCP 바인딩 상세 비교 |
+## License
 
-## 원본 저장소
-
-- 경로: `~/temp/ucp`
-- 원격: https://github.com/Universal-Commerce-Protocol/ucp
-- 공식 문서: https://ucp.dev
+MIT

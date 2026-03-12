@@ -1,33 +1,20 @@
-# Solana Program 설계 (Registry-first)
+# Solana Program 설계
 
-> [04-mcp-server.md](04-mcp-server.md) ← 이전 | 다음 → [06-payment-handler.md](06-payment-handler.md)
+Market의 on-chain 계층으로, 하나의 Anchor 프로그램(`ucp_commerce`)에 모든 커머스 로직을 포함한다. 상점/상품/주문의 신뢰 데이터를 on-chain에 기록하며, permissionless listing + verifiable discovery를 핵심으로 한다.
 
 ---
 
-## 독해 가이드
-
-- 이 문서의 목표:
-on-chain 상태 모델(Account/PDA)과 instruction 책임 경계를 고정한다.
-- 지금 몰라도 되는 것:
-모든 Rust 필드의 byte-level 크기
-- 여기서 꼭 잡을 것:
-어떤 상태가 불변/가변인지, 어떤 instruction이 상태 전이를 유발하는지
-
-## 1.0 구현 우선순위 (Registry-first)
-
-이 문서는 전체 커머스 구조를 포함하지만, 구현 우선순위는 다음과 같다.
+## 구현 우선순위 (Registry-first)
 
 1. MerchantProfile/ProductListing 중심의 permissionless 등록
 2. UCP discovery/search를 위한 조회 일관성
 3. Checkout/Order/Payment 모듈의 점진 확장
 
-즉, 결제 로직은 중요하지만 Registry/Discovery가 안정화된 뒤 연결하는 것을 기본 전략으로 한다.
+결제 로직은 중요하지만 Registry/Discovery가 안정화된 뒤 연결하는 것을 기본 전략으로 한다.
 
 ---
 
-## 1.1 프로그램 구조
-
-하나의 Anchor 프로그램(`ucp_commerce`)에 모든 커머스 로직을 포함한다.
+## 프로그램 구조
 
 ```
 programs/ucp-commerce/
@@ -55,7 +42,7 @@ programs/ucp-commerce/
 └── Cargo.toml
 ```
 
-## 1.2 Account 구조체 (PDAs)
+## Account 구조체 (PDAs)
 
 ### MerchantProfile
 
@@ -277,7 +264,7 @@ pub enum CheckoutStatus {
 }
 ```
 
-### CheckoutLineItem (별도 PDA — 트랜잭션 크기 제한 해결)
+### CheckoutLineItem (별도 PDA)
 
 ```rust
 // PDA seed: ["checkout_item", checkout_session.key(), line_item_index (u8)]
@@ -359,7 +346,7 @@ pub enum FulfillmentStatus {
 }
 ```
 
-### FulfillmentExpectation (별도 PDA — 배송 그룹)
+### FulfillmentExpectation (별도 PDA)
 
 ```rust
 // PDA seed: ["expectation", order.key(), expectation_index (u8)]
@@ -394,7 +381,7 @@ pub struct FulfillmentExpectation {
 //   digital:  destination = { email: buyer_email } (UCP destination 필수 대응)
 ```
 
-### FulfillmentEvent (별도 PDA — 이벤트 append-only)
+### FulfillmentEvent (별도 PDA)
 
 ```rust
 // PDA seed: ["fulfillment_event", order.key(), event_index (u16)]
@@ -422,7 +409,7 @@ pub struct FulfillmentEvent {
 //   failed_attempt, canceled, undeliverable, returned_to_sender
 ```
 
-### Adjustment (별도 PDA — 환불/반품/크레딧 append-only)
+### Adjustment (별도 PDA)
 
 ```rust
 // PDA seed: ["adjustment", order.key(), adjustment_index (u16)]
@@ -450,7 +437,7 @@ pub enum AdjustmentStatus {
 // 예상 크기: ~400 bytes
 ```
 
-### IdempotencyRecord (멱등성 보장)
+### IdempotencyRecord
 
 ```rust
 // PDA seed: ["idempotency", idempotency_key_bytes]
@@ -468,7 +455,7 @@ pub struct IdempotencyRecord {
 // complete/cancel 재호출 시: PDA 존재하면 이전 결과 반환
 ```
 
-### EncryptedBuyerInfo (주문별 암호화된 PII — 임시, 닫기 가능)
+### EncryptedBuyerInfo (주문별 암호화된 PII)
 
 ```rust
 // PDA seed: ["buyer_info", order.key()]
@@ -503,7 +490,7 @@ pub struct EncryptedBuyerInfo {
 //   - Merchant 장기 키 유출 시에도 이미 폐기된 ephemeral key로 과거 PII 복호화 불가
 ```
 
-## 1.3 Instructions (명령어)
+## Instructions (명령어)
 
 ```mermaid
 flowchart TB
@@ -564,7 +551,11 @@ flowchart TB
   CORE --> QRY
 ```
 
-## 1.4 에스크로 흐름
+> Curator Badge Instructions (`attest_merchant`, `revoke_attestation`)의 상세 설계는 [curator/](../curator/) 참조.
+
+## 에스크로 흐름
+
+에스크로 설계 상세는 [payment.md](payment.md) 참조.
 
 ```mermaid
 flowchart TB
@@ -578,46 +569,7 @@ flowchart TB
   E --> U["Buyer로 USDC 환불"]
 ```
 
-에스크로 정책:
-- **결제 시**: Buyer → Escrow Vault로 USDC 이동
-- **배송 완료 확인 시**: Merchant의 `release_escrow` 호출 → Merchant Treasury로 이동
-- **자동 릴리스**: `escrow_release_after` 시점 (기본 14일) 경과 후, **크랭커가** `auto_release_escrow` 호출
-- **환불**: `process_refund`로 Escrow → Buyer 환불 (전액 또는 부분)
-
-### 크랭커 (Keeper) 설계
-
-```mermaid
-flowchart TB
-  K["Escrow Keeper Service"]
-
-  subgraph K1["방법 1: Clockwork"]
-    K1A["Order 생성 시 Thread 생성"]
-    K1B["escrow_release_after 시점 자동 트리거"]
-    K1C["비용: Thread당 ~0.001 SOL"]
-    K1A --> K1B --> K1C
-  end
-
-  subgraph K2["방법 2: 자체 Keeper (MCP 내장)"]
-    K2A["1시간 주기 미릴리스 Order 스캔"]
-    K2B["escrow_release_after < now 인 Order 실행"]
-    K2C["auto_release_escrow 호출"]
-    K2D["비용: 서버 운영비"]
-    K2A --> K2B --> K2C --> K2D
-  end
-
-  subgraph V["Instruction 검증"]
-    V1["require!(now >= order.escrow_release_after)"]
-    V2["require!(!order.escrow_released)"]
-    V3["permissionless: 누구나 호출 가능"]
-    V1 --> V2 --> V3
-  end
-
-  K --> K1
-  K --> K2
-  K --> V
-```
-
-## 1.5 On-chain Events
+## On-chain Events
 
 ```rust
 // Checkout 이벤트
@@ -712,97 +664,11 @@ pub struct AttestationRevoked {
 }
 ```
 
-## 1.6 에러 코드 (UCP messages 매핑)
+## 에러 코드
 
-```rust
-#[error_code]
-pub enum CommerceError {
-    // === Checkout 에러 (UCP message.code에 매핑) ===
-    #[msg("Buyer email is required")]
-    BuyerEmailMissing,           // → error, missing, $.buyer.email, recoverable
+에러 코드(`CommerceError`) 전체 목록은 [reference/error-codes.md](../reference/error-codes.md) 참조.
 
-    #[msg("Buyer name is required")]
-    BuyerNameMissing,            // → error, missing, $.buyer.first_name, recoverable
-
-    #[msg("Shipping address is required")]
-    ShippingAddressMissing,      // → error, missing, $.fulfillment, recoverable
-
-    #[msg("Phone number is required")]
-    PhoneMissing,                // → error, missing, $.buyer.phone_number, recoverable
-
-    #[msg("Product not found")]
-    ProductNotFound,             // → error, invalid, $.line_items, recoverable
-
-    #[msg("Insufficient stock")]
-    InsufficientStock,           // → error, out_of_stock, $.line_items, recoverable
-
-    #[msg("Checkout session expired")]
-    CheckoutExpired,             // → status = canceled
-
-    #[msg("Invalid checkout status for this operation")]
-    InvalidCheckoutStatus,
-
-    #[msg("Requires escalation to merchant UI")]
-    RequiresEscalation,          // → status = requires_escalation
-
-    // === 결제 에러 ===
-    #[msg("Insufficient USDC balance")]
-    InsufficientBalance,         // → error, payment_declined, $.payment, recoverable
-
-    #[msg("Escrow transfer failed")]
-    EscrowTransferFailed,
-
-    // === 권한 에러 ===
-    #[msg("Unauthorized: not the merchant authority")]
-    UnauthorizedMerchant,
-
-    #[msg("Unauthorized: not the buyer")]
-    UnauthorizedBuyer,
-
-    // === 주문 에러 ===
-    #[msg("Order already fulfilled")]
-    AlreadyFulfilled,
-
-    #[msg("Refund exceeds remaining escrow")]
-    RefundExceedsEscrow,
-
-    #[msg("Escrow already released")]
-    EscrowAlreadyReleased,
-
-    #[msg("Escrow release time not reached")]
-    EscrowReleaseTimeNotReached,
-
-    // === 멱등성 ===
-    #[msg("Idempotency key already used for a different operation")]
-    IdempotencyConflict,
-
-    // === Line Item ===
-    #[msg("Maximum line items (10) exceeded")]
-    MaxLineItemsExceeded,
-
-    // === Buyer PII ===
-    #[msg("Buyer info PDA already exists for this order")]
-    BuyerInfoAlreadyExists,
-
-    #[msg("Buyer info PDA not found")]
-    BuyerInfoNotFound,
-
-    #[msg("Buyer info TTL not reached for auto-close")]
-    BuyerInfoTtlNotReached,
-
-    // === Curator Badge ===
-    #[msg("Maximum attestations (5) exceeded")]
-    MaxAttestationsExceeded,
-
-    #[msg("Attestation not found for this curator and type")]
-    AttestationNotFound,
-
-    #[msg("Attestation has expired")]
-    AttestationExpired,
-}
-```
-
-## 1.7 Totals 계산 로직 (하이브리드)
+## Totals 계산 로직 (하이브리드)
 
 ```mermaid
 flowchart TB

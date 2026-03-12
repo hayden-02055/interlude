@@ -1,19 +1,4 @@
-# Pocket — 구매자 MCP 서비스 설계
-
-> [07-implementation-plan.md](07-implementation-plan.md) ← 이전
-
----
-
-## 독해 가이드
-
-- 이 문서의 목표:
-Pocket의 역할, 데이터 모델, Market MCP Server와의 분리 경계를 고정한다.
-- 지금 몰라도 되는 것:
-구체적인 암호화 알고리즘, 동기화 프로토콜 세부
-- 여기서 꼭 잡을 것:
-Pocket은 **구매자의 Agent-local 서비스**이며, Market(커머스 온체인)과 독립적으로 동작한다
-
----
+# Pocket — 구매자 MCP 서비스
 
 ## Pocket이란?
 
@@ -182,11 +167,11 @@ interface BuyerPreferences {
 
 ```
 ~/.interlude/pocket/
-├── profile.enc           ← 암호화된 프로필 데이터
-├── addresses.enc         ← 암호화된 배송지 목록
-├── payments.enc          ← 암호화된 결제수단 목록
-├── preferences.json      ← 선호도 (민감하지 않음)
-└── pocket.key            ← 로컬 암호화 키 (OS keychain 연동)
+├── profile.enc           <- 암호화된 프로필 데이터
+├── addresses.enc         <- 암호화된 배송지 목록
+├── payments.enc          <- 암호화된 결제수단 목록
+├── preferences.json      <- 선호도 (민감하지 않음)
+└── pocket.key            <- 로컬 암호화 키 (OS keychain 연동)
 ```
 
 - **암호화**: AES-256-GCM, 키는 OS keychain(macOS Keychain, Windows DPAPI)에 보관
@@ -296,15 +281,17 @@ flowchart TB
   P2 -->|"결제 시"| M2
   M1 -->|"TX"| C1
   M1 -->|"complete 시"| C2
-  C2 -->|"Merchant 수신 후"| X["PDA 닫기 → 삭제"]
+  C2 -->|"Merchant 수신 후"| X["PDA 닫기 -> 삭제"]
 ```
 
 ### 데이터 흐름 규칙
 
-1. **Pocket → Market**: `prepare_checkout_data` 호출 시에만 PII 전달
-2. **Market → Solana**: PII 원본은 전달하지 않음, 해시만 on-chain
+1. **Pocket -> Market**: `prepare_checkout_data` 호출 시에만 PII 전달
+2. **Market -> Solana**: PII 원본은 전달하지 않음, 해시만 on-chain
 3. **예외**: `complete_checkout` 시 ephemeral key로 암호화한 PII를 EncryptedBuyerInfo PDA에 임시 저장
-4. **삭제**: Merchant 수신 확인 후 PDA 닫기 → on-chain 암호문 제거
+4. **삭제**: Merchant 수신 확인 후 PDA 닫기 -> on-chain 암호문 제거
+
+PII 전달 상세 흐름은 [market/](../market/) 문서를 참조한다.
 
 ---
 
@@ -313,22 +300,22 @@ flowchart TB
 ```
 interlude-pocket/
 ├── src/
-│   ├── index.ts               ← MCP Server 진입점
-│   ├── server.ts              ← MCP Server 설정 및 도구 등록
+│   ├── index.ts               <- MCP Server 진입점
+│   ├── server.ts              <- MCP Server 설정 및 도구 등록
 │   │
-│   ├── tools/                 ← MCP Tools
-│   │   ├── profile.ts         ← get/update_buyer_profile
-│   │   ├── address.ts         ← list/get/add_address, set_default
-│   │   ├── payment.ts         ← list/get/add_payment_method, set_default
-│   │   ├── preferences.ts     ← get/update_preferences
-│   │   └── checkout.ts        ← prepare_checkout_data
+│   ├── tools/                 <- MCP Tools
+│   │   ├── profile.ts         <- get/update_buyer_profile
+│   │   ├── address.ts         <- list/get/add_address, set_default
+│   │   ├── payment.ts         <- list/get/add_payment_method, set_default
+│   │   ├── preferences.ts     <- get/update_preferences
+│   │   └── checkout.ts        <- prepare_checkout_data
 │   │
-│   ├── storage/               ← 로컬 암호화 저장소
-│   │   ├── encrypted-store.ts ← AES-256-GCM 암/복호화
-│   │   ├── keychain.ts        ← OS keychain 연동
-│   │   └── migration.ts       ← 스키마 마이그레이션
+│   ├── storage/               <- 로컬 암호화 저장소
+│   │   ├── encrypted-store.ts <- AES-256-GCM 암/복호화
+│   │   ├── keychain.ts        <- OS keychain 연동
+│   │   └── migration.ts       <- 스키마 마이그레이션
 │   │
-│   └── types/                 ← 타입 정의
+│   └── types/                 <- 타입 정의
 │       ├── profile.ts
 │       ├── address.ts
 │       ├── payment.ts
@@ -338,36 +325,6 @@ interlude-pocket/
 ├── tsconfig.json
 └── README.md
 ```
-
----
-
-## Interlude 에코시스템에서의 위치
-
-```mermaid
-flowchart TB
-  subgraph INTERLUDE["Interlude Ecosystem"]
-    subgraph BUYER["구매자 측"]
-      A["AI Agent"]
-      PKT["Pocket<br/>(구매자 MCP 서비스)"]
-    end
-
-    subgraph INFRA["공유 인프라"]
-      MKT["Market<br/>(Solana Program)"]
-      CUR["Curator<br/>(검증자)"]
-    end
-
-    A --> PKT
-    A --> MKT
-    CUR -->|"Badge 부여"| MKT
-  end
-```
-
-| 구성 요소 | 역할 | 실행 위치 |
-|-----------|------|-----------|
-| **Pocket** | 구매자 정보 보관 + 자동 제공 | Buyer Agent-local |
-| **Market** | 온체인 커머스 (등록/조회/거래) | Solana blockchain |
-| **Curator** | 판매자 검증 + Badge 부여 | 독립 운영 |
-| **Badge** | Curator가 부여하는 인증 증표 | On-chain (MerchantProfile) |
 
 ---
 

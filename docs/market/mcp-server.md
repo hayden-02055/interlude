@@ -1,21 +1,10 @@
 # MCP Server 설계
 
-> [03-risk-register.md](03-risk-register.md) ← 이전 | 다음 → [05-solana-program.md](05-solana-program.md)
+Market의 MCP Server는 AI Agent 측에서 실행되는 도구 인터페이스로, UCP 오퍼레이션을 Solana 트랜잭션으로 변환한다. 중앙 서버가 아니라 Agent-local로 동작하며, discovery/read path 안정화가 1차 역할이다.
 
 ---
 
-## 독해 가이드
-
-- 이 문서의 목표:
-MCP 서버를 `tool set + orchestration layer`로 이해한다.
-- 지금 몰라도 되는 것:
-각 tool 내부의 재시도/배칭 상세
-- 여기서 꼭 잡을 것:
-`meta/idempotency`, full replacement, on-chain/off-chain 조합 책임
-
-## 2.0 역할 우선순위 (Registry-first)
-
-MCP Server의 1차 역할은 결제 중개가 아니라 discovery/read path 안정화다.
+## 역할 우선순위 (Registry-first)
 
 1. `discover_merchant`, `search_products`, `get_product`를 가장 먼저 안정화
 2. 등록/조회 데이터의 UCP 호환성 보장 (schema/version 고정)
@@ -23,7 +12,7 @@ MCP Server의 1차 역할은 결제 중개가 아니라 discovery/read path 안�
 
 ---
 
-## 2.1 프로젝트 구조
+## 프로젝트 구조
 
 ```
 ucp-solana-mcp/
@@ -76,7 +65,7 @@ ucp-solana-mcp/
 └── README.md
 ```
 
-## 2.2 MCP 도구 목록 (UCP 오퍼레이션 매핑)
+## MCP 도구 목록 (UCP 오퍼레이션 매핑)
 
 ```mermaid
 flowchart TB
@@ -128,9 +117,9 @@ flowchart TB
   MCP --> ATT
 ```
 
-## 2.3 핵심 도구 상세: create_checkout (Phase 4+ 모듈)
+## 핵심 도구 상세: create_checkout
 
-MCP 요청 → Solana 트랜잭션 → UCP 응답 변환의 전체 흐름:
+MCP 요청 -> Solana 트랜잭션 -> UCP 응답 변환의 전체 흐름:
 
 ```
 [1] AI 에이전트가 MCP tools/call 호출
@@ -257,7 +246,7 @@ MCP 요청 → Solana 트랜잭션 → UCP 응답 변환의 전체 흐름:
 }
 ```
 
-## 2.4 핵심 도구 상세: complete_checkout (결제 흐름)
+## 핵심 도구 상세: complete_checkout (결제 흐름)
 
 ```
 [1] AI 에이전트가 complete_checkout 호출
@@ -371,29 +360,9 @@ MCP 요청 → Solana 트랜잭션 → UCP 응답 변환의 전체 흐름:
 }
 ```
 
-**서명 모델 (결정 필요):**
+서명 모델 상세는 [payment.md](payment.md#서명-모델-옵션) 참조.
 
-```
-┌────────────────────────────────────────────────────────┐
-│ Option A: Buyer가 직접 서명                              │
-│   → MCP Server가 트랜잭션을 직렬화하여 AI에게 반환        │
-│   → AI가 Buyer의 지갑에 서명 요청                        │
-│   → 서명된 트랜잭션을 MCP Server가 전송                   │
-│   → 가장 안전하지만 UX가 2단계                           │
-│                                                         │
-│ Option B: 위임된 키로 서명 (Recommended)                  │
-│   → Buyer가 사전에 Session Key를 MCP Server에 위임       │
-│   → MCP Server가 한도 내에서 자동 서명                   │
-│   → Squads 멀티시그 또는 Session Key 패턴 활용           │
-│   → AI 에이전트의 자율 거래에 적합                        │
-│                                                         │
-│ Option C: 서버 관리 지갑 (프로토타입용)                    │
-│   → MCP Server가 Buyer 전용 지갑을 관리                  │
-│   → 가장 간단하지만 중앙화됨 (탈중앙화 철학에 반함)        │
-└────────────────────────────────────────────────────────┘
-```
-
-## 2.5 핵심 도구 상세: get_order (주문 조회)
+## 핵심 도구 상세: get_order (주문 조회)
 
 ```
 [1] AI 에이전트가 get_order 호출
@@ -495,3 +464,7 @@ MCP 요청 → Solana 트랜잭션 → UCP 응답 변환의 전체 흐름:
   }
 }
 ```
+
+## 에러 처리
+
+프로토콜 에러(MCP 레벨)와 비즈니스 에러(UCP 레벨)의 전체 코드 목록은 [reference/error-codes.md](../reference/error-codes.md) 참조.

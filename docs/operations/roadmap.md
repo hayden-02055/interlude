@@ -1,18 +1,5 @@
 # 구현 로드맵 (Registry-first), 비용 추정, 실행 게이트
 
-> [06-payment-handler.md](06-payment-handler.md) ← 이전
-
----
-
-## 독해 가이드
-
-- 이 문서의 목표:
-기술 설계를 실행 가능한 phase/kpi/cost 계획으로 바꾼다.
-- 지금 몰라도 되는 것:
-각 phase의 세부 구현 스니펫
-- 여기서 꼭 잡을 것:
-`게이트 통과 전 다음 단계 금지`라는 운영 원칙
-
 ## 실행 원칙
 
 1. 핵심 가치는 `결제`가 아니라 `permissionless listing + verifiable discovery`다.
@@ -144,4 +131,4 @@ flowchart TB
 
 기술/시장/운영/거버넌스/규제 리스크는 별도 문서에서 관리한다.
 
-- [03-risk-register.md](03-risk-register.md)
+- [risks.md](risks.md)

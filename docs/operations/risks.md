@@ -1,19 +1,6 @@
 # 리스크 레지스터 (Decentralized Commerce Registry)
 
-> [02-data-mapping.md](02-data-mapping.md) ← 이전 | 다음 → [04-mcp-server.md](04-mcp-server.md)
->
 > 이 문서는 `등록 자유 + discovery 신뢰 + 검열 저항` 목표를 기준으로 관리한다.
-
----
-
-## 독해 가이드
-
-- 이 문서의 목표:
-아키텍처를 운영 가능한 시스템으로 바꾸는 리스크 기준을 정한다.
-- 지금 몰라도 되는 것:
-모든 runbook의 즉시 실행 절차
-- 여기서 꼭 잡을 것:
-프로토콜 레벨과 Curator/UI 정책 레벨의 책임 분리
 
 ## 관리 원칙
 
@@ -37,8 +24,8 @@ flowchart TB
 | ID | 리스크 | 심각도 | Trigger (관측 신호) | 대응 전략 | 소유 |
 |----|--------|--------|---------------------|-----------|------|
 | R-01 | 상품/상점 스팸 등록 폭증 | High | 신규 등록 급증, 신고율 급증 | staking/deposit, rate limit, Curator 필터, **인증 없는 Merchant 자연 하위 노출** | Protocol + Indexer |
-| R-02 | 시빌 공격으로 평판 왜곡 | High | 동일 패턴 계정군 상호 리뷰 | portable reputation + 신뢰 그래프 + 가중치, **Curator Badge(attestation) 기반 판매자 신뢰 검증** | Trust Layer |
-| R-03 | 검색 Curator 중앙화 | High | 특정 Curator 의존도 과다 | 다중 Curator, 클라이언트 선택 라우팅, **Curator 간 경쟁적 Badge 생태계 (CA 모델)** | Discovery Infra |
+| R-02 | 시빌 공격으로 평판 왜곡 | High | 동일 패턴 계정군 상호 리뷰 | portable reputation + 신뢰 그래프 + 가중치, **Curator Badge(attestation) 기반 판매자 신뢰 검증** — 상세는 [curator/](../curator/) 참조 | Trust Layer |
+| R-03 | 검색 Curator 중앙화 | High | 특정 Curator 의존도 과다 | 다중 Curator, 클라이언트 선택 라우팅, **Curator 간 경쟁적 Badge 생태계 (CA 모델)** — 상세는 [curator/](../curator/) 참조 | Discovery Infra |
 | R-04 | 불법/사기 상품 노출 | High | 법적 요청/사용자 피해 신고 | 프로토콜 중립 + Curator 정책 분리 + 증거 보존 | Policy + Legal |
 | R-05 | 온체인 수수료 변동/혼잡 | Medium | tx 실패율/지연 급증 | 배치, 우선순위 수수료 전략, 큐 재시도 | Chain Ops |
 | R-06 | 메타데이터 위변조/링크 소실 | Medium | URI 불일치/다운로드 실패 | content hash 검증, 미러 게이트웨이 | Data Layer |
@@ -50,7 +37,7 @@ flowchart TB
 | R-12 | EncryptedBuyerInfo PDA closure 전 Merchant 미수신 | High | Merchant 오프라인, TX 실패 | PDA에 TTL 설정 → auto_close_buyer_info (keeper), Merchant에게 알림/재시도 | Backend Ops |
 | R-13 | PII Curator 해킹으로 캐시된 PII 유출 | Medium | Curator 서버 침해 | Curator 캐시 암호화(at rest), 위임 키 범위 제한, Curator 선택/교체 가능 | Indexer Ops |
 | R-14 | On-chain PII 암호문 장기 잔존 | Medium | Merchant가 PDA를 닫지 않음 | keeper가 TTL 초과 시 자동 close, rent 환수 인센티브, 모니터링 알림 | Protocol + Ops |
-| R-15 | Curator Badge 남용 (허위 Badge 발급) | Medium | 특정 Curator의 Badge Merchant에서 분쟁 급증 | Curator 신뢰 점수 도입, AI Agent의 Curator 선택권 보장, Badge 이벤트 온체인 투명성 | Trust Layer |
+| R-15 | Curator Badge 남용 (허위 Badge 발급) | Medium | 특정 Curator의 Badge Merchant에서 분쟁 급증 | Curator 신뢰 점수 도입, AI Agent의 Curator 선택권 보장, Badge 이벤트 온체인 투명성 — 상세는 [curator/](../curator/) 참조 | Trust Layer |
 
 ---
 
