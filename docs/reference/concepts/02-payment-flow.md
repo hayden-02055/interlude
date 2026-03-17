@@ -70,7 +70,7 @@ sequenceDiagram
 > **Solana 구현 참고:** `buyer` 필드의 PII(이름, 이메일, 전화, 주소)는 Agent-local DB에 원본 저장되고,
 > on-chain에는 SHA-256 해시만 기록된다. `complete_checkout` 시 주문별 ephemeral key로 암호화하여
 > `EncryptedBuyerInfo PDA`에 임시 저장 → Merchant 수신 후 PDA 닫기.
-> 상세: [02-data-mapping.md](../02-data-mapping.md#암호화된-pii-on-chain-저장-ephemeral-key--pda-closure)
+> 상세: [market/README.md](../../market/README.md#pii-핵심-흐름-ephemeral-key--pda-closure)
 
 ```
 Platform ──POST /checkout-sessions──→ Business

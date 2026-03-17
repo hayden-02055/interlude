@@ -42,7 +42,7 @@ flowchart TB
   M --> W["Arweave (이미지/상세설명)"]
   S --> P["결제 모듈 (선택)"]
   S --> E["EncryptedBuyerInfo PDA (임시 암호화 PII)"]
-  M -.-> I["PII Curator (선택: Merchant 편의)"]
+  M -.-> I["PII Relay (선택: Merchant 편의)"]
 ```
 
 ---
@@ -65,6 +65,7 @@ flowchart TB
 3. payment 필드는 선택형 모듈로 취급하며 registry/discovery 계층과 분리한다.
 4. PII는 주문별 임시 키로 암호화하여 on-chain에 임시 저장하고, Merchant 수신 확인 후 PDA를 닫는다.
 5. PII 암호문의 on-chain 노출 기간을 최소화하여 미래 키 유출 위험을 줄인다.
+7. PII 해시는 주문별 salt를 적용하여 rainbow table 공격을 방어하고, salt 삭제 시 GDPR "잊힐 권리"를 충족한다.
 6. Curator Badge(attestation)는 on-chain에 저장하여 AI Agent가 즉시 검증 가능하게 한다. Curator가 직접 TX에 서명하므로 Merchant 위조 불가.
 
 ```mermaid
@@ -115,7 +116,7 @@ AI Agent (각자 자기 것)
 공유 인프라 (운영자 없음)
 ├── Solana            ← 퍼블릭 블록체인
 ├── Arweave           ← 퍼블릭 영구 저장
-└── PII Curator (선택) ← 복수 운영 가능, Merchant 편의 제공
+└── PII Relay (선택) ← 복수 운영 가능, Merchant 편의 제공
 ```
 
 ---
@@ -191,10 +192,10 @@ PDA 닫기:
 - **과거 ledger 히스토리**: Validator pruning 대상. Archival node에 남을 수 있지만 ephemeral key 이미 폐기되어 복호화 불가.
 - **Merchant가 PDA를 안 닫는 경우**: 인센티브 설계로 대응 (rent 환수 = 경제적 동기). 필요 시 TTL 강제 (keeper가 일정 기간 후 자동 close).
 
-### PII Curator (선택적 보조 계층)
+### PII Relay (선택적 보조 계층)
 
 Merchant가 직접 on-chain PDA를 읽고 복호화할 수 있지만,
-운영 편의를 위해 **PII Curator**를 선택적으로 활용할 수 있다.
+운영 편의를 위해 **PII Relay**를 선택적으로 활용할 수 있다.
 
 ```
 Curator 역할:
@@ -225,16 +226,16 @@ Curator 장애 시 fallback:
 flowchart TB
   subgraph C["create_checkout"]
     C1["buyer.email/name/phone 수신"]
-    C2["Agent Off-chain DB 저장: checkout_id -> buyer_data"]
-    C3["On-chain에는 해시만 저장<br/>buyer_email_hash, buyer_name_hash"]
+    C2["Agent Off-chain DB 저장: checkout_id -> buyer_data + salt"]
+    C3["On-chain에는 salted 해시만 저장<br/>SHA-256(salt + email) 등"]
     C4["프로그램이 해시 존재로 필수 필드 검증"]
     C1 --> C2 --> C3 --> C4
   end
 
   subgraph G["get_checkout"]
     G1["On-chain CheckoutSession 조회"]
-    G2["Agent Off-chain DB에서 buyer 원본 조회"]
-    G3["SHA-256(원본) == on-chain 해시 검증"]
+    G2["Agent Off-chain DB에서 buyer 원본 + salt 조회"]
+    G3["SHA-256(salt + 원본) == on-chain 해시 검증"]
     G4["UCP 응답에 원본 buyer 데이터 포함"]
     G1 --> G2 --> G3 --> G4
   end
@@ -246,7 +247,7 @@ flowchart TB
 sequenceDiagram
   participant A as Buyer Agent (MCP Server)
   participant S as Solana Program
-  participant I as PII Curator (선택)
+  participant I as PII Relay (선택)
   participant M as Merchant
 
   Note over A,S: complete_checkout 시
@@ -312,6 +313,45 @@ sequenceDiagram
     M->>Q: 최종 실패 이벤트 기록
   end
 ```
+
+---
+
+## Merchant 참여 경로
+
+Merchant가 Interlude Market에 참여하는 방법과 도구:
+
+### 등록 및 상품 관리
+
+```mermaid
+flowchart TB
+  subgraph REG["상점 등록 (Phase 1)"]
+    R1["Merchant MCP Tools 사용<br/>register_merchant / list_product"]
+    R2["또는 직접 Solana TX 전송<br/>Anchor CLI / 자체 스크립트"]
+  end
+
+  subgraph MGMT["운영"]
+    M1["상품 가격/재고 업데이트<br/>update_product / restock_product"]
+    M2["주문 처리<br/>emit_fulfillment_event"]
+    M3["에스크로 릴리스<br/>release_escrow / process_refund"]
+  end
+
+  REG --> MGMT
+```
+
+- **Phase 1**: Merchant는 Market MCP Server의 `register_merchant`, `list_product` 도구를 통해 등록하거나, Anchor CLI로 직접 TX를 전송
+- **운영 도구**: 주문 알림 수신 (on-chain 이벤트 구독), fulfillment 이벤트 emit, 에스크로 관리
+- **PII 수신**: EncryptedBuyerInfo PDA를 조회하여 자기 privkey로 복호화, 또는 PII Relay 활용
+
+### Merchant SDK (Phase 2+)
+
+Phase 2 이후 Merchant 경험 개선을 위해 다음을 제공 예정:
+
+| 도구 | 설명 |
+|------|------|
+| **Merchant CLI** | 상점/상품 등록, 주문 조회, fulfillment emit을 CLI로 수행 |
+| **Merchant SDK (TypeScript)** | PII 복호화, 에스크로 관리를 SDK로 추상화 |
+| **Webhook Receiver** | on-chain 주문 이벤트를 Merchant의 기존 시스템에 webhook으로 전달 |
+| **Dashboard (Phase 3+)** | 웹 UI로 주문/매출/Badge 관리 |
 
 ---
 

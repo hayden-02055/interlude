@@ -149,7 +149,7 @@ sequenceDiagram
 | `com.shopify.shop_pay` | `sol.spl_token` (임의 SPL 토큰) |
 | 토큰화(Tokenization) | 불필요 — 지갑 서명 = 결제 승인 |
 
-> Payment Handler 상세 설계는 [06-payment-handler.md](06-payment-handler.md) 참조.
+> Payment Handler 상세 설계는 [market/payment.md](market/payment.md) 참조.
 
 ### 5. Order (주문 추적)
 
@@ -169,7 +169,7 @@ Solana: 주문 이벤트 = on-chain 트랜잭션 로그
 |---|------|------|
 | 1 | 최종 목표는 **Full On-Chain Commerce** | — |
 | 2 | 우선순위는 `permissionless listing` + `verifiable discovery` | 결제보다 레지스트리 먼저 |
-| 3 | 결제는 registry/discovery와 분리된 모듈로 점진 연결 | [06-payment-handler.md](06-payment-handler.md) |
+| 3 | 결제는 registry/discovery와 분리된 모듈로 점진 연결 | [market/payment.md](market/payment.md) |
 | 4 | UCP 호환성 유지, `currency`는 ISO 4217 `USD` 고정 | 토큰/체인은 별도 필드 |
 | 5 | 토큰/체인 정보는 `currency_mint`와 `payment_handlers`에서 표현 | — |
 | 6 | MCP Server는 **AI Agent 측에서 실행** (중앙 서버 아님) | [market/](market/) |

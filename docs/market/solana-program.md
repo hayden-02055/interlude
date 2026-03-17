@@ -144,16 +144,18 @@ pub struct CuratorBadge {
 // PDA seed: ["product", merchant.key(), product_id.as_bytes()]
 #[account]
 pub struct ProductListing {
-    // === 식별 ===
-    pub merchant: Pubkey,          // 소속 상점
-    pub product_id: String,        // UCP item.id에 매핑 (최대 32 bytes)
+    // === 식별 + 검색 최적화 (고정 offset 필드를 앞에 배치) ===
+    // memcmp 필터가 작동하려면 검색 대상 필드가 고정 offset에 위치해야 함
+    // 가변 길이 필드(String) 앞에 배치하여 offset이 변하지 않도록 함
+    pub merchant: Pubkey,          // 소속 상점 (offset 8, memcmp 필터 대상)
+    pub is_active: bool,           // 판매 중 여부 (offset 40, memcmp 필터 대상)
     pub bump: u8,
-
-    // === 상품 정보 (on-chain) ===
-    pub title: String,             // 상품명 (최대 128 bytes)
     pub price: u64,                // Minor units (센트). 예: 2500 = $25.00
     pub stock: u32,                // 재고 수량 (0 = 무제한은 u32::MAX)
-    pub is_active: bool,           // 판매 중 여부
+
+    // === 가변 길이 필드 (이 아래로는 memcmp offset 불안정) ===
+    pub product_id: String,        // UCP item.id에 매핑 (최대 32 bytes)
+    pub title: String,             // 상품명 (최대 128 bytes)
 
     // === 상품 정보 (off-chain 참조) ===
     pub metadata_uri: String,      // Arweave URI (상세 설명, 스펙)
@@ -213,11 +215,14 @@ pub struct CheckoutSession {
     // === 배송 방법 선택 ===
     pub selected_shipping_rate_id: [u8; 16], // 0 = 미선택 → MerchantProfile.shipping_rates의 id
 
-    // === 구매자 정보 (해시만 on-chain, 원본은 off-chain DB) ===
-    pub buyer_email_hash: [u8; 32],      // SHA-256(email), 0 = 미제출
-    pub buyer_name_hash: [u8; 32],       // SHA-256(first_name + last_name)
-    pub buyer_phone_hash: [u8; 32],      // SHA-256(phone)
-    pub shipping_address_hash: [u8; 32], // SHA-256(정규화된 주소)
+    // === 구매자 정보 (salted 해시만 on-chain, 원본은 off-chain DB) ===
+    // GDPR 대응: salt 삭제 시 해시-원본 연결이 끊어져 "잊힐 권리" 충족
+    // salt는 off-chain DB에만 보관 (on-chain에 두면 rainbow table 방어 무효)
+    pub buyer_pii_salt: [u8; 16],        // 주문별 랜덤 salt (GDPR 삭제 시 off-chain에서 salt 삭제)
+    pub buyer_email_hash: [u8; 32],      // SHA-256(salt + email), 0 = 미제출
+    pub buyer_name_hash: [u8; 32],       // SHA-256(salt + first_name + last_name)
+    pub buyer_phone_hash: [u8; 32],      // SHA-256(salt + phone)
+    pub shipping_address_hash: [u8; 32], // SHA-256(salt + 정규화된 주소)
 
     // === 컨텍스트 ===
     pub buyer_country: [u8; 2],    // ISO 3166-1 alpha-2 (예: "KR", "US")
@@ -251,7 +256,7 @@ pub struct CheckoutSession {
     pub complete_idempotency_key: [u8; 16],  // 0 = 미사용
     pub cancel_idempotency_key: [u8; 16],    // 0 = 미사용
 }
-// 예상 크기: ~450 bytes (line_items 분리 후)
+// 예상 크기: ~470 bytes (line_items 분리 후, buyer_pii_salt 16 bytes 추가)
 
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, PartialEq)]
 pub enum CheckoutStatus {
@@ -552,6 +557,39 @@ flowchart TB
 ```
 
 > Curator Badge Instructions (`attest_merchant`, `revoke_attestation`)의 상세 설계는 [curator/](../curator/) 참조.
+
+## 검색 전략 (Phase 1)
+
+Phase 1에서는 Curator 인덱서 없이 `getProgramAccounts`로 직접 조회한다. 상품 수가 늘어나면 성능이 저하되므로, 아래 `memcmp` 필터를 Phase 1부터 활용한다.
+
+### ProductListing 검색 필터
+
+| 필터 | memcmp 대상 | 용도 |
+|------|------------|------|
+| Merchant별 상품 조회 | `ProductListing.merchant` (offset 8) | 특정 상점의 상품 목록 |
+| 카테고리별 상품 조회 | `ProductListing.category` (고정 offset) | 카테고리 기반 탐색 |
+| 활성 상품만 | `ProductListing.is_active` (고정 offset) | 비활성 상품 제외 |
+
+### 검색 성능 한계
+
+- `getProgramAccounts` + `memcmp`는 **상품 수 ~10,000개**까지 실용적 (p95 < 2s)
+- 이를 초과하면 Phase 2의 Curator 인덱서가 필수
+- Phase 1에서도 MCP Server에 로컬 캐시(TTL 5분)를 두어 반복 조회 부하를 줄인다
+
+### Account 필드 배치 원칙
+
+`memcmp` 필터가 작동하려면 검색 대상 필드가 **고정 offset**에 위치해야 한다. 따라서 ProductListing의 `merchant`, `is_active` 필드는 가변 길이 필드(`String`) 앞에 배치한다.
+
+```
+ProductListing 메모리 레이아웃 (검색 최적화):
+  offset 0-7:   Anchor discriminator (8 bytes)
+  offset 8-39:  merchant (Pubkey, 32 bytes)  ← memcmp 필터 대상
+  offset 40:    is_active (bool, 1 byte)      ← memcmp 필터 대상
+  offset 41:    bump (u8, 1 byte)
+  offset 42+:   가변 길이 필드 (product_id, title, ...)
+```
+
+> **참고**: 현재 ProductListing 구조체에서 `merchant`는 첫 번째 필드이므로 이미 고정 offset이다. `is_active`는 가변 길이 필드 뒤에 있어 memcmp 불가 → **구조체 필드 순서를 재배치**하여 `is_active`를 `merchant` 바로 뒤에 배치해야 한다.
 
 ## 에스크로 흐름
 

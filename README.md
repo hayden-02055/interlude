@@ -103,7 +103,7 @@ flowchart TB
 - **Registry-first** — 핵심은 결제가 아니라 permissionless listing + verifiable discovery
 - **결제는 독립 모듈** — 레지스트리와 결합하지 않고 점진 도입
 - **Agent-local** — 중앙 서버 없이, 구매자 Agent 내에서 직접 구동
-- **PII 이중 방어** — ephemeral key + PDA closure로 개인정보 최소 노출
+- **PII 이중 방어** — ephemeral key + PDA closure로 개인정보 최소 노출, salted hash로 GDPR 대응
 - **Curator Badge = CA 모델** — 웹 인증서처럼, Curator가 Merchant 신뢰를 보증
 - **데이터 3계층** — Solana(신뢰 상태) + Agent-local DB(PII/세션) + Arweave(미디어)
 

@@ -57,7 +57,7 @@ flowchart TB
     P35B["주문별 ephemeral key 생성/암호화 모듈"]
     P35C["Merchant 복호화 + close_buyer_info 흐름"]
     P35D["auto_close_buyer_info (keeper TTL 강제)"]
-    P35E["PII Curator 캐시 프로토타입 (선택)"]
+    P35E["PII Relay 캐시 프로토타입 (선택)"]
     P35F["PII 암호화 E2E 테스트 + 키 유출 시나리오"]
   end
 

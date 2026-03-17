@@ -50,7 +50,7 @@ concepts 문서를 읽을 때의 `해석 룰`을 먼저 고정한다.
 1. Checkout full replacement 오케스트레이션 고도화
 2. Escrow/환불/분쟁 자동화
 3. 결제 모듈 확장(`sol.usdc` 외 추가 핸들러)
-4. PII Curator 고도화 (복수 Curator 경쟁, 위임 키 프로토콜 표준화)
+4. PII Relay 고도화 (복수 Curator 경쟁, 위임 키 프로토콜 표준화)
 
 ---
 

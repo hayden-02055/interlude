@@ -35,9 +35,11 @@ flowchart TB
 | R-10 | 규제/개인정보 해석 리스크 | Medium | 관할기관 문의/정책 변경 | PII 최소화, 법무 검토 루프, 지역별 정책 | Legal/Compliance |
 | R-11 | Ephemeral key 노출로 PII 복호화 | High | 키 관리 실패, 메모리 덤프 공격 | 주문별 임시 키 → 1건만 영향, Agent에서 즉시 삭제, PDA closure로 암호문 제거 | Crypto/Security |
 | R-12 | EncryptedBuyerInfo PDA closure 전 Merchant 미수신 | High | Merchant 오프라인, TX 실패 | PDA에 TTL 설정 → auto_close_buyer_info (keeper), Merchant에게 알림/재시도 | Backend Ops |
-| R-13 | PII Curator 해킹으로 캐시된 PII 유출 | Medium | Curator 서버 침해 | Curator 캐시 암호화(at rest), 위임 키 범위 제한, Curator 선택/교체 가능 | Indexer Ops |
+| R-13 | PII Relay 해킹으로 캐시된 PII 유출 | Medium | Curator 서버 침해 | Curator 캐시 암호화(at rest), 위임 키 범위 제한, Curator 선택/교체 가능 | Indexer Ops |
 | R-14 | On-chain PII 암호문 장기 잔존 | Medium | Merchant가 PDA를 닫지 않음 | keeper가 TTL 초과 시 자동 close, rent 환수 인센티브, 모니터링 알림 | Protocol + Ops |
 | R-15 | Curator Badge 남용 (허위 Badge 발급) | Medium | 특정 Curator의 Badge Merchant에서 분쟁 급증 | Curator 신뢰 점수 도입, AI Agent의 Curator 선택권 보장, Badge 이벤트 온체인 투명성 — 상세는 [curator/](../curator/) 참조 | Trust Layer |
+| R-16 | On-chain PII 해시의 GDPR "잊힐 권리" 충돌 | High | EU 관할 사용자의 삭제 요청, 규제 기관 문의 | salted hash 적용 (주문별 salt), salt 삭제 시 해시 무효화로 사실상 "잊힐 권리" 대응 — 상세는 아래 Runbook 참조 | Legal/Crypto |
+| R-17 | complete_checkout TX 크기 초과 | Medium | PII 내용이 길거나 line_item이 많은 주문 | EncryptedBuyerInfo 생성을 별도 TX로 분리, 2-TX 순차 실행 전략 — 상세는 아래 Runbook 참조 | Protocol |
 
 ---
 
@@ -86,6 +88,23 @@ flowchart TB
 - AI Agent 신뢰 Curator 목록에서 제외 권고
 - 온체인 AttestationRevoked 이벤트로 Badge 철회 추적
 
+### R-16 On-chain PII 해시 GDPR 충돌
+- **문제**: `buyer_email_hash = SHA-256(email)`은 이메일 주소의 엔트로피가 낮아 rainbow table 공격으로 원본 복원 가능. EU GDPR 하에서 해시도 개인정보로 간주될 수 있음
+- **대응**: 주문별 랜덤 salt를 생성하여 `buyer_email_hash = SHA-256(salt + email)` 형태로 저장
+  - salt는 Agent Off-chain DB에만 보관
+  - salt 삭제 시 해시와 원본 간 연결이 끊어져 사실상 "잊힐 권리" 충족
+  - on-chain 해시는 잔존하지만 salt 없이는 검증 불가 → 더 이상 개인정보로 기능하지 않음
+- **구현**: CheckoutSession에 `buyer_pii_salt: [u8; 16]` 필드 추가 (on-chain), salt 원본은 off-chain DB
+- **주의**: salt가 on-chain에 있으면 의미 없음 → salt는 반드시 off-chain에만 보관
+
+### R-17 complete_checkout TX 크기 초과
+- **문제**: complete_checkout이 5개 instruction을 단일 TX에 넣으나, Solana TX 크기 제한은 1232 bytes. `encrypted_pii`(가변 길이)가 길면 초과 가능
+- **대응**: EncryptedBuyerInfo 생성을 별도 TX로 분리하여 2-TX 순차 실행
+  - TX 1: IdempotencyRecord + SPL Transfer + complete_checkout + create_order
+  - TX 2: create_encrypted_buyer_info (PII 암호문 포함)
+- **원자성 보장**: TX 1에서 Order 상태를 `pii_pending`으로 표시, TX 2 완료 시 해제. TX 2 실패 시 재시도 가능 (멱등성 키로 중복 방지)
+- **계측**: PII JSON 평균/최대 크기를 모니터링하여 단일 TX 가능 여부 동적 판단
+
 ---
 
 ## 월간 점검 항목
@@ -96,5 +115,7 @@ flowchart TB
 4. UCP 스키마 호환성 회귀 테스트
 5. 법무/규제 변경사항 반영 여부
 6. 미닫힌 EncryptedBuyerInfo PDA 수 및 평균 잔존 기간
-7. PII Curator 캐시 정합성 및 삭제 요청 처리율
+7. PII Relay 캐시 정합성 및 삭제 요청 처리율
 8. Curator별 Badge 발급 수, Badge Merchant 분쟁 비율, 만료 미갱신 비율
+9. PII 해시 salt 보관 상태 및 GDPR 삭제 요청 처리 현황
+10. complete_checkout TX 크기 분포 (단일 TX vs 2-TX 비율)

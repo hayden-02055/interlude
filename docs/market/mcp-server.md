@@ -313,20 +313,24 @@ MCP 요청 -> Solana 트랜잭션 -> UCP 응답 변환의 전체 흐름:
        │   CheckoutSession.is_funded = true
        │   CheckoutSession.complete_idempotency_key = key
        │
-       ├─ Instruction 4: create_order
-       │   Order PDA 생성 (checkout 데이터 복사)
-       │   Order.escrow_release_after = now + 14일
-       │   재고 차감 (ProductListing.stock -= quantity)
-       │   판매 카운트 증가 (ProductListing.total_sold += quantity)
-       │
-       └─ Instruction 5: create_encrypted_buyer_info
-           EncryptedBuyerInfo PDA 생성
-           { encrypted_pii, encrypted_ephemeral_key, ephemeral_pubkey }
-           → Merchant가 자기 privkey로 복호화 가능
+       └─ Instruction 4: create_order
+           Order PDA 생성 (checkout 데이터 복사)
+           Order.escrow_release_after = now + 14일
+           재고 차감 (ProductListing.stock -= quantity)
+           판매 카운트 증가 (ProductListing.total_sold += quantity)
 
-    g. 트랜잭션 전송 (Buyer 서명 필요)
-    h. ephemeral_keypair 메모리에서 즉시 삭제 (Agent 측에 잔존하지 않음)
-    i. 확인 후 UCP 응답 반환
+    g. TX 1 전송 (Buyer 서명 필요)
+
+    h. ⚡ TX 2: create_encrypted_buyer_info (별도 트랜잭션)
+       → PII 암호문이 가변 길이이므로 TX 크기 초과 방지를 위해 분리
+       EncryptedBuyerInfo PDA 생성
+       { encrypted_pii, encrypted_ephemeral_key, ephemeral_pubkey }
+       → Merchant가 자기 privkey로 복호화 가능
+
+    i. TX 2 전송 (Buyer 서명 필요)
+    j. ephemeral_keypair 메모리에서 즉시 삭제 (Agent 측에 잔존하지 않음)
+    k. TX 2 실패 시: 최대 3회 재시도 → Order는 이미 생성됨, PII만 재전송
+    l. 확인 후 UCP 응답 반환
 
 [3] 응답
 {
@@ -387,7 +391,7 @@ MCP 요청 -> Solana 트랜잭션 -> UCP 응답 변환의 전체 흐름:
     g. 배송 주소 복원:
        → Agent Off-chain DB에 원본이 있으면 사용 (Agent가 Buyer 측인 경우)
        → 없으면 EncryptedBuyerInfo PDA 조회 → 복호화 (Merchant 측인 경우)
-       → PDA가 닫혀있으면 Curator에서 캐시 조회 (fallback)
+       → PDA가 닫혀있으면 PII Relay에서 캐시 조회 (fallback)
     h. Order line_items quantity 변환:
        → CheckoutLineItem.quantity → { total: quantity }
        → FulfillmentEvent[] 집계 → { fulfilled: Σ(delivered 수량) }

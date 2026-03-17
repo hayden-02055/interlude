@@ -263,14 +263,16 @@ Curator 자체의 신뢰도를 평가하는 메커니즘:
 
 ---
 
-## PII Curator (선택적 보조 계층)
+## PII Relay (선택적 보조 계층)
 
-Curator의 주요 역할은 Merchant 검증 및 Badge 부여이지만, **PII Curator**라는 선택적 보조 역할도 존재한다.
+> **명칭 구분**: "Curator"는 Merchant를 검증하고 Badge를 부여하는 **Trust Curator**를 의미한다. PII 캐시 서비스는 역할이 다르므로 **PII Relay**로 구분한다. 동일 운영자가 두 역할을 겸할 수 있지만, 프로토콜상 독립적인 서비스이다.
 
-Merchant가 직접 on-chain EncryptedBuyerInfo PDA를 읽고 복호화할 수 있지만, 운영 편의를 위해 PII Curator를 활용할 수 있다.
+Curator의 주요 역할은 Merchant 검증 및 Badge 부여이지만, **PII Relay**라는 선택적 보조 서비스도 존재한다.
+
+Merchant가 직접 on-chain EncryptedBuyerInfo PDA를 읽고 복호화할 수 있지만, 운영 편의를 위해 PII Relay를 활용할 수 있다.
 
 ```
-PII Curator 역할:
+PII Relay 역할:
 ├── on-chain EncryptedBuyerInfo 이벤트 감지
 ├── Merchant 위임 키로 복호화 -> 운영 DB에 캐시
 ├── Merchant에게 조회 API 제공 (배송지, 고객 목록, 검색)
@@ -280,10 +282,10 @@ PII Curator 역할:
 
 핵심 특성:
 
-- **선택적**: Merchant가 PII Curator 없이도 직접 PDA 조회/복호화 가능
-- **대체 가능**: 복수 PII Curator 운영 가능, Merchant가 자유롭게 선택/변경
-- **장애 내성**: PII Curator 장애 시 Merchant가 Solana PDA 직접 조회로 fallback
-- **프로토콜 중립**: 특정 PII Curator에 종속되지 않음
+- **선택적**: Merchant가 PII Relay 없이도 직접 PDA 조회/복호화 가능
+- **대체 가능**: 복수 PII Relay 운영 가능, Merchant가 자유롭게 선택/변경
+- **장애 내성**: PII Relay 장애 시 Merchant가 Solana PDA 직접 조회로 fallback
+- **프로토콜 중립**: 특정 PII Relay에 종속되지 않음
 
 PII 전달의 전체 흐름(ephemeral key + PDA closure 패턴)은 [market/](../market/) 문서를 참조한다.
 

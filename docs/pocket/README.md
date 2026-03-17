@@ -287,11 +287,11 @@ flowchart TB
 ### 데이터 흐름 규칙
 
 1. **Pocket -> Market**: `prepare_checkout_data` 호출 시에만 PII 전달
-2. **Market -> Solana**: PII 원본은 전달하지 않음, 해시만 on-chain
+2. **Market -> Solana**: PII 원본은 전달하지 않음, salted 해시만 on-chain (주문별 salt로 GDPR 대응)
 3. **예외**: `complete_checkout` 시 ephemeral key로 암호화한 PII를 EncryptedBuyerInfo PDA에 임시 저장
-4. **삭제**: Merchant 수신 확인 후 PDA 닫기 -> on-chain 암호문 제거
+4. **삭제**: Merchant 수신 확인 후 PDA 닫기 -> on-chain 암호문 제거. GDPR 삭제 요청 시 off-chain salt 삭제 -> on-chain 해시 무효화
 
-PII 전달 상세 흐름은 [market/](../market/) 문서를 참조한다.
+PII 전달 상세 흐름 (ephemeral key + PDA closure + salted hash)의 **canonical source**는 [market/README.md](../market/README.md#pii-핵심-흐름-ephemeral-key--pda-closure)이다.
 
 ---
 
